@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>A5 to A4 PDF Converter</title>
+</head>
+<body>
+    <h1>A5 to A4 PDF Converter</h1>
+    <input type="file" id="input_pdf" accept=".pdf">
+    <br><br>
+    <button onclick="convertPdf()">Convert PDF</button>
+    <br><br>
+    <a id="download_link" style="display:none">Download Converted PDF</a>
+
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.23.0/full/pyodide.js"></script>
+    <script>
+        async function loadPyodideAndPackages() {
+            self.pyodide = await loadPyodide();
+            await pyodide.loadPackage("micropip");
+            await pyodide.runPythonAsync(`
+                import micropip
+                await micropip.install(['PyPDF2', 'reportlab'])
+            `);
+        }
+        
+        async function convertPdf() {
+            let input = document.getElementById('input_pdf').files[0];
+            if (!input) {
+                alert('Please select a PDF file first.');
+                return;
+            }
+
+            let arrayBuffer = await input.arrayBuffer();
+            let uint8Array = new Uint8Array(arrayBuffer);
+
+            pyodide.globals.set("input_pdf", uint8Array);
+
+            await pyodide.runPythonAsync(`
+                import io
+                from PyPDF2 import PdfReader, PdfWriter, PageObject, Transformation
+                from reportlab.lib.pagesizes import A4
+
+                def add_a5_to_a4(writer, page, rotate=False):
+                    a4_width, a4_height = A4[1], A4[0]
+                    new_page = PageObject.create_blank_page(width=a4_width, height=a4_height)
+                    x_positions = [0, a4_width / 2]
+                    for x in x_positions:
+                        page_copy = PageObject.create_blank_page(width=a4_width / 2, height=a4_height)
+                        page_copy.merge_page(page)
+                        if rotate:
+                            translation_to_origin = Transformation().translate(tx=-a4_width / 4, ty=-a4_height / 2)
+                            page_copy.add_transformation(translation_to_origin)
+                            rotation = Transformation().rotate(180)
+                            page_copy.add_transformation(rotation)
+                            translation_back = Transformation().translate(tx=a4_width / 4, ty=a4_height / 2)
+                            page_copy.add_transformation(translation_back)
+                        translation = Transformation().translate(tx=x, ty=0)
+                        new_page.add_transformation(translation)
+                        new_page.merge_page(page_copy)
+                    writer.add_page(new_page)
+
+                def process_pdf(input_pdf):
+                    reader = PdfReader(io.BytesIO(input_pdf.to_py()))
+                    writer = PdfWriter()
+                    for i, page in enumerate(reader.pages):
+                        rotate = (i == 1)
+                        add_a5_to_a4(writer, page, rotate=rotate)
+                    output_pdf = io.BytesIO()
+                    writer.write(output_pdf)
+                    return output_pdf.getvalue()
+
+                output_pdf = process_pdf(input_pdf)
+            `);
+
+            let outputPdf = pyodide.globals.get('output_pdf');
+            let blob = new Blob([new Uint8Array(outputPdf.toJs())], { type: 'application/pdf' });
+            let url = URL.createObjectURL(blob);
+
+            let downloadLink = document.getElementById('download_link');
+            downloadLink.href = url;
+            downloadLink.download = 'converted_a4.pdf';
+            downloadLink.style.display = 'block';
+        }
+
+        loadPyodideAndPackages();
+    </script>
+</body>
+</html>
+

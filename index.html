@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>A5 to A4 Flyer Converter</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f0f0f0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            color: #333;
+        }
+        .container {
+            text-align: center;
+            background-color: #fff;
+            padding: 30px 50px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #333;
+            font-weight: normal;
+            margin-bottom: 30px;
+        }
+        .custom-file-input {
+            display: none;
+        }
+        .custom-file-label {
+            padding: 10px;
+            margin: 20px 0;
+            border: 2px solid #4CAF50;
+            border-radius: 5px;
+            background-color: #ffffff;
+            color: #333;
+            cursor: pointer;
+            transition: background-color 0.3s, border-color 0.3s;
+            display: inline-block;
+        }
+        .custom-file-label:hover {
+            background-color: #f0f0f0;
+            border-color: #45a049;
+        }
+        .file-name {
+            margin-top: 10px;
+            font-style: italic;
+            color: #555;
+        }
+        button, a#download_link {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            transition: background-color 0.3s, box-shadow 0.3s;
+            margin-top: 20px;
+            margin-right: 10px;
+            margin-left: 10px;
+            text-decoration: none;
+            display: inline-block;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        button:hover, a#download_link:hover {
+            background-color: #45a049;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+        a#download_link {
+            display: none;
+        }
+        .button-group {
+            display: flex;
+            justify-content: center;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>A5 to A4 Flyer Converter</h1>
+        <label for="input_pdf" class="custom-file-label">Browse...</label>
+        <input type="file" id="input_pdf" class="custom-file-input" accept=".pdf">
+        <div id="file-name" class="file-name"></div>
+        <div class="button-group">
+            <button id="convert_button" onclick="convertPdf()" disabled>Convert PDF</button>
+            <a id="download_link">Download Converted PDF</a>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.23.0/full/pyodide.js"></script>
+    <script>
+        async function loadPyodideAndPackages() {
+            self.pyodide = await loadPyodide();
+            await pyodide.loadPackage("micropip");
+            await pyodide.runPythonAsync(`
+                import micropip
+                await micropip.install(['PyPDF2', 'reportlab'])
+            `);
+            // Enable the convert button after loading Pyodide and packages
+            document.getElementById('convert_button').disabled = false;
+        }
+        
+        async function convertPdf() {
+            let input = document.getElementById('input_pdf').files[0];
+            if (!input) {
+                alert('Please select a PDF file first.');
+                return;
+            }
+
+            let arrayBuffer = await input.arrayBuffer();
+            let uint8Array = new Uint8Array(arrayBuffer);
+
+            pyodide.globals.set("input_pdf", uint8Array);
+
+            await pyodide.runPythonAsync(`
+                import io
+                from PyPDF2 import PdfReader, PdfWriter, PageObject, Transformation
+                from reportlab.lib.pagesizes import A4
+
+                def add_a5_to_a4(writer, page, rotate=False):
+                    a4_width, a4_height = A4[1], A4[0]
+                    new_page = PageObject.create_blank_page(width=a4_width, height=a4_height)
+                    x_positions = [0, a4_width / 2]
+                    for x in x_positions:
+                        page_copy = PageObject.create_blank_page(width=a4_width / 2, height=a4_height)
+                        page_copy.merge_page(page)
+                        if rotate:
+                            translation_to_origin = Transformation().translate(tx=-a4_width / 4, ty=-a4_height / 2)
+                            page_copy.add_transformation(translation_to_origin)
+                            rotation = Transformation().rotate(180)
+                            page_copy.add_transformation(rotation)
+                            translation_back = Transformation().translate(tx=a4_width / 4, ty=a4_height / 2)
+                            page_copy.add_transformation(translation_back)
+                        translation = Transformation().translate(tx=x, ty=0)
+                        new_page.add_transformation(translation)
+                        new_page.merge_page(page_copy)
+                    writer.add_page(new_page)
+
+                def process_pdf(input_pdf):
+                    reader = PdfReader(io.BytesIO(input_pdf.to_py()))
+                    writer = PdfWriter()
+                    for i, page in enumerate(reader.pages):
+                        rotate = (i == 1)
+                        add_a5_to_a4(writer, page, rotate=rotate)
+                    output_pdf = io.BytesIO()
+                    writer.write(output_pdf)
+                    return output_pdf.getvalue()
+
+                output_pdf = process_pdf(input_pdf)
+            `);
+
+            let outputPdf = pyodide.globals.get('output_pdf');
+            let blob = new Blob([new Uint8Array(outputPdf.toJs())], { type: 'application/pdf' });
+            let url = URL.createObjectURL(blob);
+
+            let downloadLink = document.getElementById('download_link');
+            downloadLink.href = url;
+            downloadLink.download = 'converted_a4.pdf';
+            downloadLink.style.display = 'inline-block';
+        }
+
+        document.getElementById('input_pdf').addEventListener('change', () => {
+            const fileNameElement = document.getElementById('file-name');
+            const input = document.getElementById('input_pdf');
+            const downloadLink = document.getElementById('download_link');
+
+            if (input.files.length > 0) {
+                fileNameElement.textContent = input.files[0].name;
+            } else {
+                fileNameElement.textContent = '';
+            }
+
+            downloadLink.style.display = 'none';
+        });
+
+        loadPyodideAndPackages();
+    </script>
+</body>
+</html>
+
