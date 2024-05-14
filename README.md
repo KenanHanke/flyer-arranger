@@ -1,5 +1,9 @@
 # Flyer Arranger
 
+**Purpose:** To make printing an A5 flyer on A4 paper dead simple.
+
+**How-To:**
+
 1. Visit: https://kenanhanke.github.io/flyer-arranger/
 
 2. Upload a PDF containing either one or two pages in A5 paper size
